@@ -41,7 +41,7 @@ Aplicación web para importar, reproducir y cortar archivos de audio (MP3 u otro
 Requisitos: Node.js (recomendado v18+).
 
 ```bash
-# Clonar o entrar en el proyecto
+# Clonar y entrar en el proyecto
 cd mp3kut
 
 # Instalar dependencias
