@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Download, Music, AlertCircle } from 'lucide-react';
 import { FileUpload } from './components/FileUpload';
-import { AudioPlayer } from './components/AudioPlayer';
+import { AudioPlayer, type AudioPlayerHandle } from './components/AudioPlayer';
 import { Waveform } from './components/Waveform';
 import {
   loadAudioFile,
@@ -18,6 +18,7 @@ function App() {
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string>('');
+  const playerRef = useRef<AudioPlayerHandle>(null);
 
   const handleFileSelect = async (file: File) => {
     setIsLoading(true);
@@ -47,6 +48,14 @@ function App() {
 
   const handleRemoveCutPoint = (id: string) => {
     setCutPoints(cutPoints.filter((point) => point.id !== id));
+  };
+
+  const handleUpdateCutPoint = (id: string, newTime: number) => {
+    if (!audioBuffer) return;
+    const clamped = Math.max(0, Math.min(audioBuffer.duration, newTime));
+    setCutPoints(
+      cutPoints.map((point) => (point.id === id ? { ...point, time: clamped } : point))
+    );
   };
 
   const handleExport = () => {
@@ -148,6 +157,7 @@ function App() {
         </div>
 
         <AudioPlayer
+          ref={playerRef}
           audioBuffer={audioBuffer}
           onTimeUpdate={setCurrentTime}
         />
@@ -157,6 +167,8 @@ function App() {
           cutPoints={cutPoints}
           onAddCutPoint={handleAddCutPoint}
           onRemoveCutPoint={handleRemoveCutPoint}
+          onUpdateCutPoint={handleUpdateCutPoint}
+          onPlayFromTime={(time) => playerRef.current?.seekToAndPlay(time)}
           currentTime={currentTime}
         />
 

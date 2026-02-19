@@ -160,3 +160,28 @@ export const formatTime = (seconds: number): string => {
   const ms = Math.floor((seconds % 1) * 100);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
 };
+
+/** Parsea "mm:ss", "mm:ss.cc", "ss" o "hh:mm:ss" a segundos. Devuelve null si no es válido. */
+export const parseTimeToSeconds = (input: string): number | null => {
+  const s = input.trim();
+  if (!s) return null;
+  const parts = s.split(':');
+  if (parts.length === 1) {
+    const sec = parseFloat(parts[0].replace(',', '.'));
+    return isNaN(sec) ? null : Math.max(0, sec);
+  }
+  if (parts.length === 2) {
+    const mins = parseInt(parts[0], 10);
+    const secs = parseFloat(parts[1].replace(',', '.'));
+    if (isNaN(mins) || isNaN(secs)) return null;
+    return Math.max(0, mins * 60 + secs);
+  }
+  if (parts.length === 3) {
+    const hrs = parseInt(parts[0], 10);
+    const mins = parseInt(parts[1], 10);
+    const secs = parseFloat(parts[2].replace(',', '.'));
+    if (isNaN(hrs) || isNaN(mins) || isNaN(secs)) return null;
+    return Math.max(0, hrs * 3600 + mins * 60 + secs);
+  }
+  return null;
+};

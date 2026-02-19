@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Scissors, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { CutPoint, formatTime } from '../utils/audioProcessor';
+import { Scissors, X, ZoomIn, ZoomOut, Play } from 'lucide-react';
+import { CutPoint, formatTime, parseTimeToSeconds } from '../utils/audioProcessor';
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -11,6 +11,8 @@ interface WaveformProps {
   cutPoints: CutPoint[];
   onAddCutPoint: (time: number) => void;
   onRemoveCutPoint: (id: string) => void;
+  onUpdateCutPoint: (id: string, newTime: number) => void;
+  onPlayFromTime?: (time: number) => void;
   currentTime: number;
 }
 
@@ -19,6 +21,8 @@ export const Waveform = ({
   cutPoints,
   onAddCutPoint,
   onRemoveCutPoint,
+  onUpdateCutPoint,
+  onPlayFromTime,
   currentTime,
 }: WaveformProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -26,6 +30,8 @@ export const Waveform = ({
   const [hoveredPoint, setHoveredPoint] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
 
   useEffect(() => {
     const el = containerRef.current;
@@ -239,22 +245,67 @@ export const Waveform = ({
           <div className="space-y-2">
             {cutPoints
               .sort((a, b) => a.time - b.time)
-              .map((point, index) => (
-                <div
-                  key={point.id}
-                  className="flex items-center justify-between bg-gray-700 rounded px-3 py-2"
-                >
-                  <span className="text-gray-300 text-sm">
-                    Corte {index + 1}: {formatTime(point.time)}
-                  </span>
-                  <button
-                    onClick={() => onRemoveCutPoint(point.id)}
-                    className="text-red-400 hover:text-red-300 transition-colors"
+              .map((point, index) => {
+                const isEditing = editingId === point.id;
+                const displayValue = isEditing ? editingValue : formatTime(point.time);
+                const commitEdit = () => {
+                  if (!isEditing) return;
+                  const parsed = parseTimeToSeconds(editingValue);
+                  const duration = audioBuffer?.duration ?? 0;
+                  if (parsed !== null && duration > 0) {
+                    const clamped = Math.max(0, Math.min(duration, parsed));
+                    onUpdateCutPoint(point.id, clamped);
+                  }
+                  setEditingId(null);
+                };
+                return (
+                  <div
+                    key={point.id}
+                    className="flex items-center gap-2 bg-gray-700 rounded px-3 py-2"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                    <span className="text-gray-300 text-sm shrink-0">
+                      Corte {index + 1}:
+                    </span>
+                    <input
+                      type="text"
+                      value={displayValue}
+                      onChange={(e) => {
+                        setEditingId(point.id);
+                        setEditingValue(e.target.value);
+                      }}
+                      onFocus={() => {
+                        setEditingId(point.id);
+                        setEditingValue(formatTime(point.time));
+                      }}
+                      onBlur={commitEdit}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="flex-1 min-w-0 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-gray-100 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="mm:ss"
+                    />
+                    {onPlayFromTime && (
+                      <button
+                        type="button"
+                        onClick={() => onPlayFromTime(point.time)}
+                        className="shrink-0 p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                        title="Reproducir desde aquí"
+                      >
+                        <Play className="w-4 h-4" fill="currentColor" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onRemoveCutPoint(point.id)}
+                      className="shrink-0 p-1 text-red-400 hover:text-red-300 transition-colors"
+                      title="Eliminar punto"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

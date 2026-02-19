@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 import { formatTime } from '../utils/audioProcessor';
+
+export interface AudioPlayerHandle {
+  seekToAndPlay: (time: number) => void;
+}
 
 interface AudioPlayerProps {
   audioBuffer: AudioBuffer;
   onTimeUpdate: (time: number) => void;
 }
 
-export const AudioPlayer = ({ audioBuffer, onTimeUpdate }: AudioPlayerProps) => {
+export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ audioBuffer, onTimeUpdate }, ref) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -179,6 +183,24 @@ export const AudioPlayer = ({ audioBuffer, onTimeUpdate }: AudioPlayerProps) => 
     }
   };
 
+  const seekToAndPlay = (newTime: number) => {
+    const t = Math.max(0, Math.min(duration, newTime));
+    pauseTimeRef.current = t;
+    setCurrentTime(t);
+    onTimeUpdate(t);
+    setTimeInput('');
+    if (isPlaying) {
+      pause();
+    }
+    play();
+  };
+
+  const seekToAndPlayRef = useRef(seekToAndPlay);
+  seekToAndPlayRef.current = seekToAndPlay;
+  useImperativeHandle(ref, () => ({
+    seekToAndPlay: (t: number) => seekToAndPlayRef.current(t),
+  }), []);
+
   const handleTimeInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseTimeInput(timeInput);
@@ -268,4 +290,5 @@ export const AudioPlayer = ({ audioBuffer, onTimeUpdate }: AudioPlayerProps) => 
       </div>
     </div>
   );
-};
+});
+AudioPlayer.displayName = 'AudioPlayer';
