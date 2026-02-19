@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { Scissors, X } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Scissors, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { CutPoint, formatTime } from '../utils/audioProcessor';
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 8;
+const WAVEFORM_HEIGHT = 128;
 
 interface WaveformProps {
   audioBuffer: AudioBuffer;
@@ -18,26 +22,40 @@ export const Waveform = ({
   currentTime,
 }: WaveformProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredPoint, setHoveredPoint] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    if (!canvasRef.current || !audioBuffer) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const { width } = entries[0].contentRect;
+      setContainerWidth(width);
+    });
+    ro.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const canvasWidth = Math.max(1, Math.floor(containerWidth * zoomLevel));
+  const duration = audioBuffer?.duration ?? 0;
+
+  const draw = useCallback(() => {
+    if (!canvasRef.current || !audioBuffer || containerWidth <= 0) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-
-    if (rect.width === 0 || rect.height === 0) return;
-
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = canvasWidth * dpr;
+    canvas.height = WAVEFORM_HEIGHT * dpr;
     ctx.scale(dpr, dpr);
 
-    const width = rect.width;
-    const height = rect.height;
+    const width = canvasWidth;
+    const height = WAVEFORM_HEIGHT;
 
     ctx.fillStyle = '#1f2937';
     ctx.fillRect(0, 0, width, height);
@@ -55,7 +73,9 @@ export const Waveform = ({
       let max = -1.0;
 
       for (let j = 0; j < step; j++) {
-        const datum = data[i * step + j];
+        const idx = i * step + j;
+        if (idx >= data.length) break;
+        const datum = data[idx];
         if (datum < min) min = datum;
         if (datum > max) max = datum;
       }
@@ -74,7 +94,7 @@ export const Waveform = ({
 
     ctx.stroke();
 
-    const progressX = (currentTime / audioBuffer.duration) * width;
+    const progressX = duration > 0 ? (currentTime / duration) * width : 0;
     ctx.strokeStyle = '#10b981';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -83,7 +103,7 @@ export const Waveform = ({
     ctx.stroke();
 
     cutPoints.forEach((point) => {
-      const x = (point.time / audioBuffer.duration) * width;
+      const x = (point.time / duration) * width;
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
@@ -93,20 +113,52 @@ export const Waveform = ({
       ctx.stroke();
       ctx.setLineDash([]);
     });
-  }, [audioBuffer, cutPoints, currentTime]);
+  }, [audioBuffer, cutPoints, currentTime, canvasWidth, containerWidth, duration]);
+
+  useEffect(() => {
+    draw();
+  }, [draw]);
+
+  const scrollPlayheadIntoView = useCallback(() => {
+    if (!containerRef.current || duration <= 0) return;
+    const progressX = (currentTime / duration) * canvasWidth;
+    const container = containerRef.current;
+    const scrollLeft = container.scrollLeft;
+    const visibleRight = scrollLeft + container.clientWidth;
+    if (progressX < scrollLeft || progressX > visibleRight - 20) {
+      container.scrollLeft = Math.max(0, progressX - container.clientWidth / 2);
+    }
+  }, [currentTime, duration, canvasWidth]);
+
+  useEffect(() => {
+    const t = setTimeout(scrollPlayheadIntoView, 100);
+    return () => clearTimeout(t);
+  }, [currentTime, scrollPlayheadIntoView]);
+
+  const getCanvasX = (clientX: number): number => {
+    if (!containerRef.current) return 0;
+    const rect = containerRef.current.getBoundingClientRect();
+    return clientX - rect.left + containerRef.current.scrollLeft;
+  };
+
+  const clientXToTime = (clientX: number): number => {
+    if (duration <= 0) return 0;
+    const x = getCanvasX(clientX);
+    const t = (x / canvasWidth) * duration;
+    return Math.max(0, Math.min(duration, t));
+  };
+
+  const timeToX = (time: number): number => (duration > 0 ? (time / duration) * canvasWidth : 0);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || !audioBuffer) return;
+    if (!audioBuffer) return;
+    const time = clientXToTime(e.clientX);
+    const clickX = getCanvasX(e.clientX);
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const width = rect.width;
-    const time = (x / width) * audioBuffer.duration;
-
-    const clickThreshold = 10;
+    const clickThresholdPx = 10;
     const clickedPoint = cutPoints.find((point) => {
-      const pointX = (point.time / audioBuffer.duration) * width;
-      return Math.abs(pointX - x) < clickThreshold;
+      const pointX = timeToX(point.time);
+      return Math.abs(pointX - clickX) < clickThresholdPx;
     });
 
     if (clickedPoint) {
@@ -117,16 +169,13 @@ export const Waveform = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || !audioBuffer) return;
-
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const width = rect.width;
+    if (!containerRef.current || !audioBuffer) return;
+    const clickX = getCanvasX(e.clientX);
 
     const clickThreshold = 10;
     const hoveredCutPoint = cutPoints.find((point) => {
-      const pointX = (point.time / audioBuffer.duration) * width;
-      return Math.abs(pointX - x) < clickThreshold;
+      const pointX = timeToX(point.time);
+      return Math.abs(pointX - clickX) < clickThreshold;
     });
 
     setHoveredPoint(hoveredCutPoint ? hoveredCutPoint.id : null);
@@ -135,21 +184,51 @@ export const Waveform = ({
   return (
     <div className="space-y-4">
       <div className="bg-gray-800 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
           <Scissors className="w-5 h-5 text-blue-400" />
           <h3 className="text-white font-semibold">Forma de Onda</h3>
           <span className="text-sm text-gray-400 ml-auto">
             Haz clic para agregar puntos de corte
           </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setZoomLevel((z) => Math.max(MIN_ZOOM, z - 1))}
+              disabled={zoomLevel <= MIN_ZOOM}
+              className="p-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Menos zoom"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-gray-400 text-sm min-w-[3rem] text-center">
+              {zoomLevel}x
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoomLevel((z) => Math.min(MAX_ZOOM, z + 1))}
+              disabled={zoomLevel >= MAX_ZOOM}
+              className="p-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Más zoom"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <canvas
-          ref={canvasRef}
-          onClick={handleCanvasClick}
-          onMouseMove={handleMouseMove}
-          className={`w-full h-32 rounded ${
-            hoveredPoint ? 'cursor-pointer' : 'cursor-crosshair'
-          }`}
-        />
+        <div
+          ref={containerRef}
+          className="overflow-x-auto overflow-y-hidden rounded border border-gray-600"
+          style={{ maxHeight: WAVEFORM_HEIGHT + 2 }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={canvasWidth}
+            height={WAVEFORM_HEIGHT}
+            onClick={handleCanvasClick}
+            onMouseMove={handleMouseMove}
+            className={`block rounded ${hoveredPoint ? 'cursor-pointer' : 'cursor-crosshair'}`}
+            style={{ width: canvasWidth, height: WAVEFORM_HEIGHT, minWidth: '100%' }}
+          />
+        </div>
       </div>
 
       {cutPoints.length > 0 && (
