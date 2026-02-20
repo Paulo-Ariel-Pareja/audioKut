@@ -92,11 +92,11 @@ function App() {
             <div className="flex items-center justify-center gap-3">
               <Music className="w-10 h-10 text-blue-500" />
               <h1 className="text-4xl font-bold text-white">
-                Editor de Audio MP3
+                AudioKut
               </h1>
             </div>
             <p className="text-gray-400">
-              Importa, escucha y corta tus archivos de audio
+              Importa, escucha y parte tus archivos de audio
             </p>
           </div>
 
